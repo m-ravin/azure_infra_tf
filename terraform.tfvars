@@ -1,7 +1,7 @@
 environment = "dev"
 app_ref     = "dp"
 region_code = "az1"
-ai_foundry_region_code = "az3"
+ai_foundry_region_code = "az1"
 
 
 databricks_settings = {
@@ -25,6 +25,17 @@ storage_settings = {
   enable_storage_account       = true
   public_network_access_enabled= false
   allow_blob_public_access     = false
+}
+
+ai_storage_settings = {
+  enable_storage_account        = true
+  suffix                        = "aif"
+  account_tier                  = "Standard"
+  account_kind                  = "StorageV2"
+  account_replication_type      = "LRS"
+  access_tier                   = "Cool"
+  is_hns_enabled                = false
+  public_network_access_enabled = true
 }
 
 keyvault_settings = {
@@ -55,3 +66,5 @@ ai_foundry_settings = {
   kind              = "OpenAI"
   sku_name          = "S0"
 }
+
+

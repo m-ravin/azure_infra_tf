@@ -67,6 +67,34 @@ variable "storage_settings" {
   })
 }
 
+######################
+# Blob Storage Config     #
+######################
+
+variable "ai_storage_settings" {
+  description = "Configuration for the non-HNS storage account used by Azure AI Foundry"
+  type = object({
+    enable_storage_account       = bool
+    suffix                       = string
+    account_tier                 = string
+    account_kind                 = string
+    account_replication_type     = string
+    access_tier                  = string
+    is_hns_enabled               = bool
+    public_network_access_enabled = bool
+  })
+  default = {
+    enable_storage_account        = true
+    suffix                        = "aif"
+    account_tier                  = "Standard"
+    account_kind                  = "StorageV2"
+    account_replication_type      = "LRS"
+    access_tier                   = "Hot"
+    is_hns_enabled                = false         # 👈 Flat Blob storage
+    public_network_access_enabled = true
+  }
+}
+
 # 👇 Removed deprecated `allow_blob_public_access` (no longer supported after 3.70)
 # 👇 Removed container_type here; if needed, manage it directly in main.tf
 

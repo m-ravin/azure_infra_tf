@@ -20,13 +20,22 @@ This repository contains Terraform configurations to deploy and manage Azure inf
 This Terraform project deploys the following Azure resources:
 
 - **Resource Group**: Central container for all resources
-- **Storage Account**: For data storage with configurable settings
-- **Key Vault**: For secure secret management
-- **Databricks Workspace**: For big data and analytics
-- **Azure Cosmos DB**: For globally distributed database
-- **Azure AI Search**: For cognitive search capabilities
+- **Storage Account**: Primary storage with Hierarchical Namespace (HNS) for data lake capabilities
+- **AI Storage Account**: Dedicated blob storage (non-HNS) for Azure AI Foundry models and data
+- **Key Vault**: For secure secret and key management
+- **Databricks Workspace**: For big data processing and analytics
+- **Azure Cosmos DB**: For globally distributed NoSQL database with optional analytical storage
+- **Azure AI Search**: For cognitive search and semantic indexing capabilities
+- **Azure AI Foundry**: For building, deploying, and managing AI applications with integrated access to storage and key vault
 
-The infrastructure is environment-aware (dev, qa, prod) and supports multi-region deployments with flexible configuration through Terraform variables.
+The infrastructure is environment-aware (dev, qa, prod) and supports multi-region deployments. The AI Foundry service can be deployed to a different region than the primary infrastructure, allowing you to leverage region-specific AI capabilities.
+
+### Key Features
+
+- **Multi-Region Support**: Deploy main infrastructure and AI services to different Azure regions
+- **Flexible Enablement**: Each major service can be independently enabled or disabled via configuration
+- **Integrated Security**: AI Foundry integrated with Key Vault and Storage Account for secure credential management
+- **Scalable Storage**: Two separate storage accounts for different workload patterns (HNS for data lakes, Blob for AI models)
 
 ---
 
@@ -79,10 +88,10 @@ azure_infra_tf/
 
 | File | Purpose |
 |------|---------|
-| `main.tf` | Contains all resource definitions (Storage, KeyVault, Databricks, Cosmos DB, AI Search) |
-| `variables.tf` | Declares all input variables with descriptions and types |
+| `main.tf` | Contains all resource definitions (Storage, AI Storage, KeyVault, Databricks, Cosmos DB, AI Search, AI Foundry) |
+| `variables.tf` | Declares all input variables with descriptions and types for all services |
 | `provider.tf` | Configures Azure provider and required Terraform/provider versions |
-| `terraform.tfvars` | Sets actual values for variables (environment-specific) |
+| `terraform.tfvars` | Sets actual values for variables (environment-specific configuration) |
 
 ---
 
@@ -127,16 +136,18 @@ Edit `terraform.tfvars` to customize your deployment:
 ```hcl
 environment = "dev"              # Deployment environment (dev, qa, prod)
 app_ref     = "dp"               # Short app reference for naming
-region_code = "az1"              # Region code (az1, az2, az3)
-ai_foundry_region_code = "az3"   # AI Foundry specific region (optional override)
+region_code = "az1"              # Region code for primary resources (az1, az2, az3)
+ai_foundry_region_code = "az3"   # Region code for AI Foundry (optional, defaults to region_code if empty)
 ```
 
 Additional configuration options are available in `terraform.tfvars` for:
-- Databricks workspace settings
-- Storage account settings
-- Key Vault access policies
-- Cosmos DB consistency and replication
+- Databricks workspace settings (tier, network configuration)
+- Storage account settings (tier, replication, HNS enablement)
+- AI Storage account settings (non-HNS blob storage for AI Foundry)
+- Key Vault access policies and RBAC
+- Cosmos DB consistency, replication, and analytical storage
 - AI Search SKU and capacity
+- AI Foundry service settings (enable/disable, SKU)
 
 ---
 
@@ -272,12 +283,240 @@ az group show --name rsg-dev-az1-dp
 az group show --name rsg-dev-az1-dp --query "{name:name, location:location, tags:tags}"
 ```
 
+### Step 9: Verify Deployment in Azure
+
+Confirm that resources were successfully created in Azure:
+
+```powershell
+# List all resources in your resource group
+az resource list --resource-group rsg-dev-az1-dp
+
+# Verify specific resource group exists
+az group show --name rsg-dev-az1-dp
+
+# View resource group tags and location
+az group show --name rsg-dev-az1-dp --query "{name:name, location:location, tags:tags}"
+
+# Verify AI Foundry was created
+az cognitiveservices account list --resource-group rsg-dev-az1-dp
+
+# Check AI Foundry region and configuration
+az cognitiveservices account show --resource-group rsg-dev-az1-dp --name aifoundry-dev-az1-dp
+```
+
 ### Step 10: Save Terraform Outputs
 
 Terraform might generate useful outputs. View them with:
 
 ```powershell
 terraform output
+```
+
+---
+
+## 🤖 Azure AI Foundry Configuration
+
+### Overview
+
+Azure AI Foundry (powered by Azure Cognitive Services) is integrated into this Terraform configuration with seamless integration to your storage and key vault resources.
+
+### Architecture
+
+The AI Foundry setup includes:
+
+- **AI Foundry Service**: The primary cognitive services hub
+- **Dedicated AI Storage Account**: Non-HNS blob storage specifically for AI models and data
+- **Key Vault Integration**: Secure key and secret management
+- **Regional Flexibility**: Deploy AI Foundry to a region optimized for AI services
+- **System-Assigned Identity**: Managed identity for secure authentication
+
+### Configuration
+
+#### Enable/Disable AI Foundry
+
+In `terraform.tfvars`:
+
+```hcl
+ai_foundry_settings = {
+  enable_ai_foundry = true        # Set to false to disable
+  kind              = "CognitiveServices"
+  sku_name          = "S0"        # Standard tier
+}
+```
+
+#### AI Foundry Storage Account
+
+A separate storage account is created specifically for AI Foundry:
+
+```hcl
+ai_storage_settings = {
+  enable_storage_account        = true
+  suffix                        = "aif"  # Appended to storage account name
+  account_tier                  = "Standard"
+  account_kind                  = "StorageV2"
+  account_replication_type      = "LRS"   # Locally redundant
+  access_tier                   = "Hot"   # Hot tier for frequent access
+  is_hns_enabled                = false   # Flat blob storage, not hierarchical
+  public_network_access_enabled = true
+}
+```
+
+**Key Points:**
+- **Non-HNS Storage**: Uses flat blob structure, optimized for AI model storage
+- **Hot Tier**: Configured for frequent access to AI models and training data
+- **Separate from Primary Storage**: Primary storage has HNS enabled (data lake), while AI storage is flat blob storage
+
+#### Multi-Region AI Foundry
+
+Deploy AI Foundry to a different region to access region-specific AI capabilities:
+
+```hcl
+region_code            = "az1"    # Primary infrastructure region (Central India)
+ai_foundry_region_code = "az1"    # AI Foundry region (East US)
+```
+
+**Behavior:**
+- If `ai_foundry_region_code` is empty, AI Foundry uses the primary region
+- If specified, AI Foundry is deployed to the configured region
+- All other resources remain in the primary region
+- This allows you to leverage region-specific AI model availability
+
+### Accessing AI Foundry
+
+After deployment, access your AI Foundry service:
+
+```powershell
+# Get AI Foundry resource details
+$rgName = "rsg-dev-az1-dp"
+$aifName = "aifoundry-dev-az1-dp"
+
+az cognitiveservices account show `
+  --resource-group $rgName `
+  --name $aifName `
+  --query "{name:name, location:location, kind:kind, sku:sku.name}"
+
+# Get AI Foundry API keys
+az cognitiveservices account keys list `
+  --resource-group $rgName `
+  --name $aifName
+
+# Get AI Foundry endpoint
+az cognitiveservices account show `
+  --resource-group $rgName `
+  --name $aifName `
+  --query "properties.endpoint"
+```
+
+### AI Foundry with Models
+
+#### Connect to AI Models
+
+```powershell
+# Set environment variables for programmatic access
+$rgName = "rsg-dev-az1-dp"
+$aifName = "aifoundry-dev-az1-dp"
+
+# Get endpoint and key
+$endpoint = az cognitiveservices account show `
+  --resource-group $rgName `
+  --name $aifName `
+  --query "properties.endpoint" -o tsv
+
+$key = az cognitiveservices account keys list `
+  --resource-group $rgName `
+  --name $aifName `
+  --query "key1" -o tsv
+
+Write-Host "AI Foundry Endpoint: $endpoint"
+Write-Host "AI Foundry Key: $key"
+```
+
+#### Using with Python
+
+```python
+from azure.ai.projects import AIProjectClient
+from azure.identity import DefaultAzureCredential
+
+# Initialize client with AI Foundry credentials
+client = AIProjectClient.from_connection_string(
+    connection_string="<your-ai-foundry-connection-string>"
+)
+
+# Create and manage AI projects and agents
+project = client.projects.create(name="my-project")
+```
+
+### Storage Account Integration
+
+The AI Foundry service is automatically linked to:
+
+1. **AI Storage Account**: For model storage and training data
+2. **Key Vault**: For secure credential management
+
+```powershell
+# Access AI storage account
+$storageRg = "rsg-dev-az1-dp"
+$storageName = "stdevaz1dpaif"  # Pattern: st{env}{region}{app_ref}{suffix}
+
+# Get storage account details
+az storage account show --resource-group $storageRg --name $storageName
+
+# List containers
+az storage container list --account-name $storageName
+```
+
+### Key Vault Integration
+
+AI Foundry uses Key Vault for:
+- API key storage
+- Secret management
+- Access control
+
+```powershell
+# View Key Vault configuration
+az keyvault show --name "kv-dev-az1-dp"
+
+# List secrets (if you have access)
+az keyvault secret list --vault-name "kv-dev-az1-dp"
+```
+
+### Monitoring and Management
+
+```powershell
+# Monitor AI Foundry usage
+az monitor metrics list `
+  --resource "/subscriptions/<subscription-id>/resourceGroups/rsg-dev-az1-dp/providers/Microsoft.CognitiveServices/accounts/aifoundry-dev-az1-dp" `
+  --metric "UsedTokens"
+
+# Check deployment cost (requires Azure Cost Management)
+az cost management export create `
+  --resource-group rsg-dev-az1-dp `
+  --scope "/subscriptions/<subscription-id>/resourceGroups/rsg-dev-az1-dp"
+```
+
+### AI Foundry Disable/Cleanup
+
+To disable AI Foundry without affecting other resources:
+
+```hcl
+# In terraform.tfvars, set:
+ai_foundry_settings = {
+  enable_ai_foundry = false   # Disables AI Foundry creation
+  ...
+}
+
+# Or disable AI storage:
+ai_storage_settings = {
+  enable_storage_account = false
+  ...
+}
+```
+
+Then apply changes:
+
+```powershell
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
 ---

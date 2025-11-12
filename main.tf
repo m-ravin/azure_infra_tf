@@ -45,6 +45,31 @@ resource "azurerm_storage_account" "storage" {
 }
 
 # --------------------------------------------------------------------
+# Blob Storage Account
+# --------------------------------------------------------------------
+
+# --- AI Foundry Storage Account (non-HNS) ---
+resource "azurerm_storage_account" "ai_storage" {
+  count                    = var.ai_storage_settings.enable_storage_account ? 1 : 0
+  name                     = lower(substr("st${var.environment}${var.region_code}${var.app_ref}${var.ai_storage_settings.suffix}", 0, 24))
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = local.region_name
+  account_tier             = var.ai_storage_settings.account_tier
+  account_kind             = var.ai_storage_settings.account_kind
+  account_replication_type = var.ai_storage_settings.account_replication_type
+  access_tier              = var.ai_storage_settings.access_tier
+  is_hns_enabled           = var.ai_storage_settings.is_hns_enabled
+  public_network_access_enabled = var.ai_storage_settings.public_network_access_enabled
+
+  tags = {
+    environment = var.environment
+    app_ref     = var.app_ref
+    used_by     = "AI Foundry"
+  }
+}
+
+
+# --------------------------------------------------------------------
 # Key Vault
 # --------------------------------------------------------------------
 
@@ -135,26 +160,21 @@ resource "azurerm_ai_foundry" "ai_foundry" {
   name                = "aifoundry-${var.environment}-${var.region_code}-${var.app_ref}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = local.ai_foundry_region
-
-  # You can leave these commented until AI Foundry supports SKU via provider
-  # sku_name            = var.ai_foundry_settings.sku_name
-  # kind                = "CognitiveServices"
-
   #custom_subdomain_name = "aif-${var.environment}-${var.region_code}-${var.app_ref}"
 
-  # 👇 Link to existing resources
-  key_vault_id       = azurerm_key_vault.kv.id
-  storage_account_id = azurerm_storage_account.storage[0].id
+  key_vault_id        = azurerm_key_vault.kv.id
+  storage_account_id  = azurerm_storage_account.ai_storage[0].id   # 👈 new link
+
+  identity {
+    type = "SystemAssigned"
+  }
 
   tags = {
     environment = var.environment
     app_ref     = var.app_ref
   }
-
-  identity {
-    type = "SystemAssigned"
-  }
 }
+
 
 
 
