@@ -1,6 +1,6 @@
-###############################
-# Global / Core Configuration #
-###############################
+###############################################################################
+# Common Environment Variables
+###############################################################################
 
 variable "environment" {
   description = "Deployment environment (e.g., dev, qa, prod)"
@@ -8,21 +8,21 @@ variable "environment" {
 }
 
 variable "app_ref" {
-  description = "Short application reference (used in resource naming)"
+  description = "Short application reference (used for naming)"
   type        = string
 }
 
 variable "region_code" {
-  description = "Logical region code (e.g., az1, az2, az3)"
+  description = "Region code used for resource deployments"
   type        = string
 }
 
 variable "ai_foundry_region_code" {
-  description = "Logical region code for Azure Foundry (e.g., az1, az2, az3)"
+  description = "Region code used for AI Foundry deployment"
   type        = string
 }
 
-variable "azure_region_map" {
+variable "azure_regions_map" {
   description = "Mapping between logical region codes and Azure region names"
   type = map(string)
   default = {
@@ -32,12 +32,17 @@ variable "azure_region_map" {
   }
 }
 
-######################
-# Databricks Config  #
-######################
+variable "resource_tags" {
+  description = "Resource tags"
+  type        = map(string)
+}
+
+###############################################################################
+# Databricks Workspace Settings
+###############################################################################
 
 variable "databricks_settings" {
-  description = "Settings for the Databricks workspace"
+  description = "Databricks workspace configuration"
   type = object({
     workspace_name_ref            = string
     workspace_tier                = string
@@ -45,77 +50,80 @@ variable "databricks_settings" {
     private_subnet_ref            = string
     enable_databricks             = bool
     reuse_nsg                     = bool
+    databricks_admin              = list(any)
     public_network_access_enabled = bool
   })
 }
 
-######################
-# Storage Config     #
-######################
+###############################################################################
+# Storage Account Settings 
+###############################################################################
 
-variable "storage_settings" {
-  description = "Azure Storage Account configuration"
+variable "storage_hns_settings" {
+  description = "HNS-enabled storage account configuration"
   type = object({
-    suffix                       = string
-    account_tier                 = string
-    account_kind                 = string
-    account_replication_type     = string
-    access_tier                  = string
-    is_hns_enabled               = bool
-    enable_storage_account       = bool
-    public_network_access_enabled= bool
-  })
-}
-
-######################
-# Blob Storage Config     #
-######################
-
-variable "ai_storage_settings" {
-  description = "Configuration for the non-HNS storage account used by Azure AI Foundry"
-  type = object({
-    enable_storage_account       = bool
-    suffix                       = string
-    account_tier                 = string
-    account_kind                 = string
-    account_replication_type     = string
-    access_tier                  = string
-    is_hns_enabled               = bool
+    enable_storage_account        = bool
+    suffix                        = string
+    account_tier                  = string
+    account_kind                  = string
+    account_replication_type      = string
+    access_tier                   = string
+    is_hns_enabled                = bool
+    storage_byok                 = bool
+    firewall_ip_rules            = list(string)
+    firewall_default_action       = string
+    firewall_rules_bypass         = list(string)
+    static_website                = bool
+    storage_container_type        = string
     public_network_access_enabled = bool
+    allow_blob_public_access      = bool
+    last_access_time_enabled      = bool
   })
-  default = {
-    enable_storage_account        = true
-    suffix                        = "aif"
-    account_tier                  = "Standard"
-    account_kind                  = "StorageV2"
-    account_replication_type      = "LRS"
-    access_tier                   = "Hot"
-    is_hns_enabled                = false         # 👈 Flat Blob storage
-    public_network_access_enabled = true
-  }
 }
 
-# 👇 Removed deprecated `allow_blob_public_access` (no longer supported after 3.70)
-# 👇 Removed container_type here; if needed, manage it directly in main.tf
+variable "storage_blob_settings" {
+  description = "Blob storage account configuration"
+  type = object({
+    enable_storage_account        = bool
+    suffix                        = string
+    account_tier                  = string
+    account_kind                  = string
+    account_replication_type      = string
+    access_tier                   = string
+    is_hns_enabled                = bool
+    storage_byok                 = bool
+    firewall_ip_rules            = list(string)
+    firewall_default_action       = string
+    firewall_rules_bypass         = list(string)
+    static_website                = bool
+    storage_container_type        = string
+    public_network_access_enabled = bool
+    allow_blob_public_access      = bool
+    last_access_time_enabled      = bool
+  })
+}
 
-######################
-# Key Vault Config   #
-######################
+###############################################################################
+# Key Vault Settings
+###############################################################################
 
 variable "keyvault_settings" {
-  description = "Azure Key Vault configuration (RBAC / BYOK access)"
+  description = "Key Vault configuration including firewall settings"
   type = object({
-    kva_user                 = string
-    byok_access_object_id    = string
-    secret_permissions       = list(string)
-    key_permissions          = list(string)
-    certificate_permissions  = list(string)
+    suffix                     = string
+    sku_name                   = string
+    soft_delete                = bool
+    soft_delete_retention_days = number
+    enable_service_principal   = bool
+    firewall_ip_rules          = list(string)
+    firewall_default_action    = string
+    firewall_rules_bypass      = list(string)
   })
 }
 
-######################
-# CosmosDB Config    #
-######################
+###############################################################################
+# CosmosDB Settings
+###############################################################################
 
 variable "cosmos_settings" {
   description = "Azure CosmosDB configuration"
@@ -125,47 +133,29 @@ variable "cosmos_settings" {
     account_kind              = string
     offer_type                = string
     enable_analytical_storage = bool
+    firewall_ip_rules         = list(string)
   })
-  default = {
-    enable_cosmos             = true
-    consistency_level         = "Session"
-    account_kind              = "GlobalDocumentDB"
-    offer_type                = "Standard"
-    enable_analytical_storage = false
-  }
 }
 
-###############################
-# AI Search & Foundry Config  #
-###############################
+###############################################################################
+# AI Search & AI Foundry Settings
+###############################################################################
 
 variable "ai_search_settings" {
-  description = "Azure AI Search configuration"
+  description = "Azure AI Search settings"
   type = object({
     enable_ai_search = bool
     sku              = string
     replica_count    = number
     partition_count  = number
   })
-  default = {
-    enable_ai_search = true
-    sku              = "basic"
-    replica_count    = 1
-    partition_count  = 1
-  }
 }
 
 variable "ai_foundry_settings" {
-  description = "Azure AI Foundry configuration"
+  description = "Azure AI Foundry settings"
   type = object({
     enable_ai_foundry = bool
     kind              = string
     sku_name          = string
   })
-  default = {
-    enable_ai_foundry = true
-    kind              = "CognitiveServices"  
-    sku_name          = "S0"
-  }
 }
-

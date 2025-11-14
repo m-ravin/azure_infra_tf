@@ -1,65 +1,84 @@
 data "azurerm_client_config" "current" {}
 
 locals {
-  region_name = var.azure_region_map[var.region_code]
+  region_name = var.azure_regions_map[var.region_code]
   rg_name     = "rsg-${var.environment}-${var.region_code}-${var.app_ref}"
   app_prefix  = "${var.environment}-${var.region_code}-${var.app_ref}"
 
    # 👇 new local: resolve AI Foundry region (falls back to main region if not overridden)
-  ai_foundry_region = var.ai_foundry_region_code != "" ? var.azure_region_map[var.ai_foundry_region_code] : local.region_name
+  ai_foundry_region = var.ai_foundry_region_code != "" ? var.azure_regions_map[var.ai_foundry_region_code] : local.region_name
 }
 
 # --------------------------------------------------------------------
 # Resource Group
 # --------------------------------------------------------------------
-resource "azurerm_resource_group" "rg" {
+resource "azurerm_resource_group" "rsg" {
   name     = local.rg_name
   location = local.region_name
 }
 # --------------------------------------------------------------------
-# Storage Account
+# Storage Settings (Main Data Lake)
 # --------------------------------------------------------------------
 
-resource "azurerm_storage_account" "storage" {
-  count                    = var.storage_settings.enable_storage_account ? 1 : 0
-  name                     = lower(substr("st${var.environment}${var.region_code}${var.app_ref}${var.storage_settings.suffix}", 0, 24))
-  resource_group_name      = azurerm_resource_group.rg.name
-  location                 = azurerm_resource_group.rg.location
-  account_tier             = var.storage_settings.account_tier
-  account_kind             = var.storage_settings.account_kind
-  account_replication_type = var.storage_settings.account_replication_type
-  is_hns_enabled           = var.storage_settings.is_hns_enabled
-  access_tier              = var.storage_settings.access_tier
 
-  # ✅ correct for AzureRM v4.x
-  # public_network_access_enabled = var.storage_settings.public_network_access_enabled
+resource "azurerm_storage_account" "storage_hns" {
+  count = var.storage_hns_settings.enable_storage_account ? 1 : 0
 
-  #network_rules {
-  #  default_action = var.storage_settings.public_network_access_enabled ? "Allow" : "Deny"
-  #}
+  name                = lower(substr("st${replace(local.app_prefix, "-", "")}${var.storage_hns_settings.suffix}", 0, 24))
+  resource_group_name = azurerm_resource_group.rsg.name
+  location            = local.region_name
 
-  tags = {
+  account_tier             = var.storage_hns_settings.account_tier
+  account_kind             = var.storage_hns_settings.account_kind
+  account_replication_type = var.storage_hns_settings.account_replication_type
+  access_tier              = var.storage_hns_settings.access_tier
+  is_hns_enabled           = var.storage_hns_settings.is_hns_enabled
+  public_network_access_enabled = var.storage_hns_settings.public_network_access_enabled
+
+  network_rules {
+    default_action             = var.storage_hns_settings.firewall_default_action
+    bypass                     = var.storage_hns_settings.firewall_rules_bypass
+    ip_rules                   = var.storage_hns_settings.firewall_ip_rules
+    virtual_network_subnet_ids = []
+  }
+
+    tags = {
     environment = var.environment
     app_ref     = var.app_ref
+    used_by     = "Data Platform"
   }
+
 }
 
-# --------------------------------------------------------------------
-# Blob Storage Account
-# --------------------------------------------------------------------
 
-# --- AI Foundry Storage Account (non-HNS) ---
-resource "azurerm_storage_account" "ai_storage" {
-  count                    = var.ai_storage_settings.enable_storage_account ? 1 : 0
-  name                     = lower(substr("st${var.environment}${var.region_code}${var.app_ref}${var.ai_storage_settings.suffix}", 0, 24))
-  resource_group_name      = azurerm_resource_group.rg.name
-  location                 = local.region_name
-  account_tier             = var.ai_storage_settings.account_tier
-  account_kind             = var.ai_storage_settings.account_kind
-  account_replication_type = var.ai_storage_settings.account_replication_type
-  access_tier              = var.ai_storage_settings.access_tier
-  is_hns_enabled           = var.ai_storage_settings.is_hns_enabled
-  public_network_access_enabled = var.ai_storage_settings.public_network_access_enabled
+
+#############################################
+# AI Storage Settings (Non-HNS Storage)
+#############################################
+
+
+resource "azurerm_storage_account" "storage_blob" {
+  count = var.storage_blob_settings.enable_storage_account ? 1 : 0
+
+  name                = lower(substr("st${replace(local.app_prefix, "-", "")}${var.storage_blob_settings.suffix}", 0, 24))
+  resource_group_name = azurerm_resource_group.rsg.name
+  location            = local.region_name
+
+  account_tier             = var.storage_blob_settings.account_tier
+  account_kind             = var.storage_blob_settings.account_kind
+  account_replication_type = var.storage_blob_settings.account_replication_type
+  access_tier              = var.storage_blob_settings.access_tier
+  is_hns_enabled           = var.storage_blob_settings.is_hns_enabled
+  public_network_access_enabled = var.storage_blob_settings.public_network_access_enabled
+
+
+  network_rules {
+    default_action             = var.storage_blob_settings.firewall_default_action
+    bypass                     = var.storage_blob_settings.firewall_rules_bypass
+    ip_rules                   = var.storage_blob_settings.firewall_ip_rules
+    virtual_network_subnet_ids = []
+  }
+
 
   tags = {
     environment = var.environment
@@ -68,25 +87,26 @@ resource "azurerm_storage_account" "ai_storage" {
   }
 }
 
-
 # --------------------------------------------------------------------
 # Key Vault
 # --------------------------------------------------------------------
 
 
 resource "azurerm_key_vault" "kv" {
-  name                        = "kv-${var.environment}-${var.region_code}-${var.app_ref}"
-  location                    = azurerm_resource_group.rg.location
-  resource_group_name         = azurerm_resource_group.rg.name
-  tenant_id                   = data.azurerm_client_config.current.tenant_id
-  sku_name                    = "standard"
-  soft_delete_retention_days  = 7
-  purge_protection_enabled    = false
+  name                = "kv-${var.environment}-${var.region_code}-${var.app_ref}"
+  location            = local.region_name
+  resource_group_name = azurerm_resource_group.rsg.name
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  sku_name            = var.keyvault_settings.sku_name
+  soft_delete_retention_days = var.keyvault_settings.soft_delete_retention_days 
 
   network_acls {
-    default_action             = "Allow"
-    bypass                     = "AzureServices"
-  }
+  default_action = var.keyvault_settings.firewall_default_action
+  bypass         = join(",", var.keyvault_settings.firewall_rules_bypass)
+  ip_rules       = var.keyvault_settings.firewall_ip_rules
+}
+
+  tags = var.resource_tags
 }
 
 
@@ -96,8 +116,8 @@ resource "azurerm_key_vault" "kv" {
 resource "azurerm_databricks_workspace" "dbw" {
   count               = var.databricks_settings.enable_databricks ? 1 : 0
   name                = "dbw-${var.environment}-${var.region_code}-${var.app_ref}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rsg.name
+  location            = azurerm_resource_group.rsg.location
   sku                 = var.databricks_settings.workspace_tier
 
   custom_parameters {
@@ -113,44 +133,60 @@ resource "azurerm_databricks_workspace" "dbw" {
 # --------------------------------------------------------------------
 # Cosmos DB
 # --------------------------------------------------------------------
+
+
+  # ✅ Newer schema uses "analytical_storage" block (3.80+)
+  #dynamic "analytical_storage" {
+  #  for_each = var.cosmos_settings.enable_analytical_storage ? [1] : []
+  #  content {
+  #    schema_type = "WellDefined"
+  #  }
+  #}
+
+
 resource "azurerm_cosmosdb_account" "cosmos" {
   count               = var.cosmos_settings.enable_cosmos ? 1 : 0
   name                = "cosmos-${var.environment}-${var.region_code}-${var.app_ref}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  offer_type          = var.cosmos_settings.offer_type
-  kind                = var.cosmos_settings.account_kind
+  resource_group_name = azurerm_resource_group.rsg.name
+  location            = local.region_name
+
+  offer_type = var.cosmos_settings.offer_type
+  kind       = var.cosmos_settings.account_kind
 
   consistency_policy {
     consistency_level = var.cosmos_settings.consistency_level
   }
 
-  # ✅ Newer schema uses "analytical_storage" block (3.80+)
-  dynamic "analytical_storage" {
-    for_each = var.cosmos_settings.enable_analytical_storage ? [1] : []
-    content {
-      schema_type = "WellDefined"
-    }
-  }
+  ip_range_filter = var.cosmos_settings.firewall_ip_rules
+
+
 
   geo_location {
-    location          = azurerm_resource_group.rg.location
+    location          = local.region_name
     failover_priority = 0
   }
+
+  tags = var.resource_tags
 }
+
 
 # --------------------------------------------------------------------
 # Azure AI Search
 # --------------------------------------------------------------------
 resource "azurerm_search_service" "ai_search" {
-  count               = var.ai_search_settings.enable_ai_search ? 1 : 0
+  count = var.ai_search_settings.enable_ai_search ? 1 : 0
+
   name                = "srch-${var.environment}-${var.region_code}-${var.app_ref}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  sku                 = var.ai_search_settings.sku
-  replica_count       = var.ai_search_settings.replica_count
-  partition_count     = var.ai_search_settings.partition_count
+  resource_group_name = azurerm_resource_group.rsg.name
+  location            = local.region_name
+
+  sku           = var.ai_search_settings.sku
+  replica_count = var.ai_search_settings.replica_count
+  partition_count = var.ai_search_settings.partition_count
+
+  tags = var.resource_tags
 }
+
 
 # --------------------------------------------------------------------
 # Azure AI Foundry (Cognitive Services)
@@ -158,12 +194,10 @@ resource "azurerm_search_service" "ai_search" {
 resource "azurerm_ai_foundry" "ai_foundry" {
   count               = var.ai_foundry_settings.enable_ai_foundry ? 1 : 0
   name                = "aifoundry-${var.environment}-${var.region_code}-${var.app_ref}"
-  resource_group_name = azurerm_resource_group.rg.name
+  resource_group_name = azurerm_resource_group.rsg.name
   location            = local.ai_foundry_region
-  #custom_subdomain_name = "aif-${var.environment}-${var.region_code}-${var.app_ref}"
-
   key_vault_id        = azurerm_key_vault.kv.id
-  storage_account_id  = azurerm_storage_account.ai_storage[0].id   # 👈 new link
+  storage_account_id  = azurerm_storage_account.storage_blob[0].id   # 👈 new link
 
   identity {
     type = "SystemAssigned"

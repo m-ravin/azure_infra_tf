@@ -8,6 +8,9 @@
 # Crash log files
 crash.log
 crash.*.log
+# Local state files (never commit!)
+terraform.tfstate
+terraform.tfstate.backup
 
 #  .tfvars filesare managed as part of configuration and so should be included in version control
 
@@ -18,6 +21,9 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 .terraform.lock.hcl
+# Terraform plan outputs
+tfplan
+*.plan
 
 # Ignore transient lock info files created by terraform apply
 .terraform.tfstate.lock.info

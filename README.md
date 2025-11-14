@@ -9,9 +9,12 @@ This repository contains Terraform configurations to deploy and manage Azure inf
 3. [Project Structure](#project-structure)
 4. [Configuration](#configuration)
 5. [Step-by-Step Setup Guide](#step-by-step-setup-guide)
-6. [Usage](#usage)
-7. [Cleanup](#cleanup)
-8. [Troubleshooting](#troubleshooting)
+6. [Azure AI Foundry Configuration](#azure-ai-foundry-configuration)
+7. [Storage Architecture](#storage-architecture)
+8. [Networking & Security](#networking--security)
+9. [Usage](#usage)
+10. [Cleanup](#cleanup)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -71,6 +74,7 @@ Before you begin, ensure you have the following installed and configured:
 
 ## 📁 Project Structure
 
+The project is organized as follows:
 ```
 azure_infra_tf/
 ├── main.tf                 # Primary Terraform configuration (resources)
@@ -79,9 +83,10 @@ azure_infra_tf/
 ├── terraform.tfvars        # Environment-specific variable values
 ├── README.md               # This file
 ├── .terraform/             # Terraform working directory (auto-generated)
-├── terraform.tfstate       # Current state file (local backend)
-├── terraform.tfstate.backup # Backup of previous state
-└── tfplan                  # Saved plan file
+.github/
+└── workflows/
+└── terraform-deploy.yml # GitHub Actions deployment workflow
+
 ```
 
 ### File Descriptions
@@ -134,20 +139,23 @@ export ARM_TENANT_ID="<TENANT_VALUE>"
 Edit `terraform.tfvars` to customize your deployment:
 
 ```hcl
-environment = "dev"              # Deployment environment (dev, qa, prod)
-app_ref     = "dp"               # Short app reference for naming
-region_code = "az1"              # Region code for primary resources (az1, az2, az3)
-ai_foundry_region_code = "az3"   # Region code for AI Foundry (optional, defaults to region_code if empty)
+environment            = "dev"    # Deployment environment (dev, qa, prod)
+app_ref                = "dp"     # Short app reference for naming
+region_code            = "az1"    # Region code for primary resources (az1, az2, az3)
+ai_foundry_region_code = "az1"    # Region code for AI Foundry (optional, defaults to region_code if empty)
+
+# Global resource tags
+resource_tags = {
+  environment = "dev"
+  owner       = "data-platform"
+}
 ```
 
-Additional configuration options are available in `terraform.tfvars` for:
-- Databricks workspace settings (tier, network configuration)
-- Storage account settings (tier, replication, HNS enablement)
-- AI Storage account settings (non-HNS blob storage for AI Foundry)
-- Key Vault access policies and RBAC
-- Cosmos DB consistency, replication, and analytical storage
-- AI Search SKU and capacity
-- AI Foundry service settings (enable/disable, SKU)
+### Key Configuration Objects
+
+- `storage_hns_settings`: Configures the main storage account with Hierarchical Namespace (HNS) enabled for data lake workloads.
+- `storage_blob_settings`: Configures the AI storage account (non-HNS) for Azure AI Foundry.
+
 
 ---
 
@@ -339,32 +347,34 @@ In `terraform.tfvars`:
 ```hcl
 ai_foundry_settings = {
   enable_ai_foundry = true        # Set to false to disable
-  kind              = "CognitiveServices"
+  kind              = "OpenAI"    # Cognitive Services kind
   sku_name          = "S0"        # Standard tier
 }
 ```
 
-#### AI Foundry Storage Account
+#### AI Foundry Storage Account Integration
 
-A separate storage account is created specifically for AI Foundry:
+AI Foundry is automatically linked to the blob storage account (`storage_blob_settings`):
 
 ```hcl
-ai_storage_settings = {
-  enable_storage_account        = true
-  suffix                        = "aif"  # Appended to storage account name
-  account_tier                  = "Standard"
-  account_kind                  = "StorageV2"
-  account_replication_type      = "LRS"   # Locally redundant
-  access_tier                   = "Hot"   # Hot tier for frequent access
-  is_hns_enabled                = false   # Flat blob storage, not hierarchical
-  public_network_access_enabled = true
+storage_blob_settings = {
+  enable_storage_account = true
+  suffix                = "aif"   # Results in storage account like "stdevaz1dpaif"
+  account_tier          = "Standard"
+  account_kind          = "StorageV2"
+  account_replication_type = "LRS"
+  access_tier           = "Cool"
+  is_hns_enabled        = false   # Flat blob storage, not hierarchical
+  firewall_ip_rules     = ["122.172.82.40"]
+  firewall_default_action = "Deny"
+  public_network_access_enabled = false
 }
 ```
 
 **Key Points:**
-- **Non-HNS Storage**: Uses flat blob structure, optimized for AI model storage
-- **Hot Tier**: Configured for frequent access to AI models and training data
-- **Separate from Primary Storage**: Primary storage has HNS enabled (data lake), while AI storage is flat blob storage
+- **Non-HNS Storage:** Uses flat blob structure, optimized for AI model storage
+- **Separate from Data Lake:** Data lake HNS is for ETL, blob storage is for AI models
+- **Network Protected:** Firewall restricted with IP whitelisting
 
 #### Multi-Region AI Foundry
 
@@ -372,14 +382,14 @@ Deploy AI Foundry to a different region to access region-specific AI capabilitie
 
 ```hcl
 region_code            = "az1"    # Primary infrastructure region (Central India)
-ai_foundry_region_code = "az1"    # AI Foundry region (East US)
+ai_foundry_region_code = "az1"    # AI Foundry region (can be different, e.g., "az3" for East US)
 ```
 
 **Behavior:**
 - If `ai_foundry_region_code` is empty, AI Foundry uses the primary region
 - If specified, AI Foundry is deployed to the configured region
-- All other resources remain in the primary region
-- This allows you to leverage region-specific AI model availability
+- All other resources (storage, vault, Cosmos DB) remain in the primary region
+- This allows you to leverage region-specific AI model availability (e.g., GPT-4 availability)
 
 ### Accessing AI Foundry
 
@@ -404,7 +414,25 @@ az cognitiveservices account keys list `
 az cognitiveservices account show `
   --resource-group $rgName `
   --name $aifName `
-  --query "properties.endpoint"
+  --query "properties.endpoint" -o tsv
+```
+
+### AI Foundry Storage & Key Vault Links
+
+View the integrated resources:
+
+```powershell
+# Check linked Key Vault
+az cognitiveservices account show `
+  --resource-group rsg-dev-az1-dp `
+  --name aifoundry-dev-az1-dp `
+  --query "properties.keyVaultUri"
+
+# Check linked Storage Account
+az cognitiveservices account show `
+  --resource-group rsg-dev-az1-dp `
+  --name aifoundry-dev-az1-dp `
+  --query "properties.storageId"
 ```
 
 ### AI Foundry with Models
@@ -450,48 +478,54 @@ project = client.projects.create(name="my-project")
 
 The AI Foundry service is automatically linked to:
 
-1. **AI Storage Account**: For model storage and training data
-2. **Key Vault**: For secure credential management
+1. **Blob Storage Account** (`storage_blob_settings`): For model storage and training data
+2. **Key Vault**: For secure credential and key management
 
 ```powershell
 # Access AI storage account
 $storageRg = "rsg-dev-az1-dp"
-$storageName = "stdevaz1dpaif"  # Pattern: st{env}{region}{app_ref}{suffix}
+$storageName = "stdevaz1dpaif"  # Pattern: st{env}{region}{app_ref}aif
 
 # Get storage account details
 az storage account show --resource-group $storageRg --name $storageName
 
-# List containers
+# List containers and blobs
 az storage container list --account-name $storageName
+
+# List blobs in a container
+az storage blob list --account-name $storageName --container-name "ai-models"
 ```
 
-### Key Vault Integration
+### Key Vault Integration Details
 
 AI Foundry uses Key Vault for:
-- API key storage
+- API key storage and rotation
 - Secret management
-- Access control
+- Access control policies
+- Encryption key management (if BYOK enabled)
 
 ```powershell
 # View Key Vault configuration
 az keyvault show --name "kv-dev-az1-dp"
 
-# List secrets (if you have access)
+# List secrets in Key Vault (requires Get permission)
 az keyvault secret list --vault-name "kv-dev-az1-dp"
+
+# Get a specific secret
+az keyvault secret show --vault-name "kv-dev-az1-dp" --name "ai-api-key"
 ```
 
-### Monitoring and Management
+### Monitoring AI Foundry
 
 ```powershell
-# Monitor AI Foundry usage
-az monitor metrics list `
-  --resource "/subscriptions/<subscription-id>/resourceGroups/rsg-dev-az1-dp/providers/Microsoft.CognitiveServices/accounts/aifoundry-dev-az1-dp" `
-  --metric "UsedTokens"
+# List metrics available for AI Foundry
+az monitor metrics list-definitions `
+  --resource "/subscriptions/{subscription-id}/resourceGroups/rsg-dev-az1-dp/providers/Microsoft.CognitiveServices/accounts/aifoundry-dev-az1-dp"
 
-# Check deployment cost (requires Azure Cost Management)
-az cost management export create `
-  --resource-group rsg-dev-az1-dp `
-  --scope "/subscriptions/<subscription-id>/resourceGroups/rsg-dev-az1-dp"
+# View usage metrics
+az monitor metrics list `
+  --resource "/subscriptions/{subscription-id}/resourceGroups/rsg-dev-az1-dp/providers/Microsoft.CognitiveServices/accounts/aifoundry-dev-az1-dp" `
+  --metric "ProcessedUnits"
 ```
 
 ### AI Foundry Disable/Cleanup
@@ -505,9 +539,14 @@ ai_foundry_settings = {
   ...
 }
 
-# Or disable AI storage:
-ai_storage_settings = {
-  enable_storage_account = false
+# To keep blob storage but disable AI Foundry:
+storage_blob_settings = {
+  enable_storage_account = true   # Keep storage
+  ...
+}
+
+ai_foundry_settings = {
+  enable_ai_foundry = false       # Disable only AI Foundry
   ...
 }
 ```
@@ -519,9 +558,92 @@ terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
+### AI Foundry Cost Optimization
+
+```powershell
+# Get current spending
+az cost management query --scope "/subscriptions/{subscription-id}" `
+  --timeframe "MonthToDate" `
+  --granularity "Monthly" `
+  --filter "[{field: 'ResourceType', operator: 'In', values: ['Microsoft.CognitiveServices']}]"
+
+# Check AI Foundry specific costs
+az cost management query --scope "/subscriptions/{subscription-id}/resourceGroups/rsg-dev-az1-dp" `
+  --timeframe "MonthToDate"
+```
+
 ---
 
-## 💡 Usage
+## � Resource Tagging Strategy
+
+### Global Resource Tags
+
+All resources are tagged with consistent metadata for organization and cost tracking:
+
+```hcl
+resource_tags = {
+  environment = "dev"           # Environment identifier
+  owner       = "data-platform" # Team/owner identifier
+  # Add additional tags as needed:
+  # cost_center = "12345"
+  # project     = "ai_analytics"
+  # compliance  = "pii"
+}
+```
+
+### Resource-Specific Tags
+
+In addition to global tags, some resources have additional tags:
+
+```hcl
+# Storage accounts (HNS)
+tags = {
+  environment = var.environment
+  app_ref     = var.app_ref
+  used_by     = "Data Platform"    # Purpose identifier
+}
+
+# Storage accounts (Blob)
+tags = {
+  environment = var.environment
+  app_ref     = var.app_ref
+  used_by     = "AI Foundry"       # Purpose identifier
+}
+
+# AI Foundry
+tags = {
+  environment = var.environment
+  app_ref     = var.app_ref
+}
+```
+
+### Querying Resources by Tags
+
+```powershell
+# Find all resources by environment
+az resource list --resource-group rsg-dev-az1-dp `
+  --query "[?tags.environment=='dev']" `
+  --output table
+
+# Find all resources by owner
+az resource list --resource-group rsg-dev-az1-dp `
+  --query "[?tags.owner=='data-platform']" `
+  --output table
+
+# Find resources used by AI Foundry
+az resource list --resource-group rsg-dev-az1-dp `
+  --query "[?tags.used_by=='AI Foundry']" `
+  --output table
+
+# Calculate costs by tag
+az cost management query --scope "/subscriptions/{subscription-id}" `
+  --timeframe "MonthToDate" `
+  --grouping "[{type: 'Dimension', name: 'ResourceType'}]"
+```
+
+---
+
+## �💡 Usage
 
 ### Managing State
 
@@ -704,10 +826,67 @@ terraform show
 
 ## 📝 Notes
 
-- **State Management**: By default, Terraform stores state locally. For production, consider using Azure Storage backend.
-- **Cost Estimation**: Run `terraform plan` to understand resource costs before deployment.
-- **Version Control**: Add `terraform.tfstate*` to `.gitignore` to prevent committing sensitive state files.
-- **Regional Availability**: Verify that all resources are available in your chosen Azure region.
+- **State Management**: By default, Terraform stores state locally in `terraform.tfstate`. For production, consider using Azure Storage backend with state locking.
+- **Cost Estimation**: Run `terraform plan` to understand resource costs before deployment. Use Azure Pricing Calculator for detailed estimates.
+- **Version Control**: Add the following to `.gitignore` to prevent committing sensitive files:
+  ```
+  terraform.tfstate*
+  .terraform/
+  .terraform.lock.hcl
+  tfplan
+  ```
+- **Regional Availability**: Verify that all resources are available in your chosen Azure region. Some services (like AI Foundry) may have limited regional availability.
+- **Firewall Configuration**: Update `firewall_ip_rules` in all settings with your organization's IP addresses before deploying to production.
+- **Soft Delete**: Key Vault has 7-day soft delete retention. Deleted vaults can be recovered within this period.
+- **Storage Naming**: Azure Storage account names must be globally unique and between 3-24 characters. The configuration handles this automatically.
+- **Managed Identity**: AI Foundry uses system-assigned managed identity for secure access to linked resources.
+- **Network Isolation**: All services use firewall rules with "Deny by default" policy for security.
+
+### Production Checklist
+
+Before deploying to production:
+- [ ] Update all `firewall_ip_rules` with production network IPs
+- [ ] Set `firewall_default_action` to "Deny" for all services
+- [ ] Enable soft delete on Key Vault with appropriate retention
+- [ ] Configure storage replication to GRS (Geo-Redundant Storage)
+- [ ] Review and update resource tags for cost allocation
+- [ ] Enable diagnostic logging for compliance and monitoring
+- [ ] Set up Azure Monitor alerts for critical metrics
+- [ ] Configure Key Vault backup and recovery procedures
+- [ ] Use managed identities instead of service principals where possible
+- [ ] Review data residency and compliance requirements
+
+### Terraform State Backend Migration
+
+For production, migrate from local state to Azure Storage:
+
+```powershell
+# Create storage account for Terraform state
+$storageRg = "rsg-tf-state"
+$storageName = "sttfstate001"
+
+az group create --name $storageRg --location "Central India"
+
+az storage account create `
+  --resource-group $storageRg `
+  --name $storageName `
+  --sku Standard_LRS
+
+az storage container create `
+  --name tfstate `
+  --account-name $storageName
+
+# Update backend configuration
+# Add to provider.tf:
+# terraform {
+#   backend "azurerm" {
+#     resource_group_name  = "rsg-tf-state"
+#     storage_account_name = "sttfstate001"
+#     container_name       = "tfstate"
+#     key                  = "prod.terraform.tfstate"
+#   }
+# }
+```
 
 ---
 
