@@ -10,11 +10,9 @@ This repository contains Terraform configurations to deploy and manage Azure inf
 4. [Configuration](#configuration)
 5. [Step-by-Step Setup Guide](#step-by-step-setup-guide)
 6. [Azure AI Foundry Configuration](#azure-ai-foundry-configuration)
-7. [Storage Architecture](#storage-architecture)
-8. [Networking & Security](#networking--security)
-9. [Usage](#usage)
-10. [Cleanup](#cleanup)
-11. [Troubleshooting](#troubleshooting)
+7. [Usage](#usage)
+8. [Cleanup](#cleanup)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,8 +22,8 @@ This Terraform project deploys the following Azure resources:
 
 - **Resource Group**: Central container for all resources
 - **Storage Account**: Primary storage with Hierarchical Namespace (HNS) for data lake capabilities
-- **AI Storage Account**: Dedicated blob storage (non-HNS) for Azure AI Foundry models and data
-- **Key Vault**: For secure secret and key management
+- **Blob Storage Account**: Dedicated blob storage (non-HNS) for Azure AI Foundry models and data
+- **Azure Key Vault**: For secure secret and key management
 - **Databricks Workspace**: For big data processing and analytics
 - **Azure Cosmos DB**: For globally distributed NoSQL database with optional analytical storage
 - **Azure AI Search**: For cognitive search and semantic indexing capabilities
@@ -356,20 +354,6 @@ ai_foundry_settings = {
 
 AI Foundry is automatically linked to the blob storage account (`storage_blob_settings`):
 
-```hcl
-storage_blob_settings = {
-  enable_storage_account = true
-  suffix                = "aif"   # Results in storage account like "stdevaz1dpaif"
-  account_tier          = "Standard"
-  account_kind          = "StorageV2"
-  account_replication_type = "LRS"
-  access_tier           = "Cool"
-  is_hns_enabled        = false   # Flat blob storage, not hierarchical
-  firewall_ip_rules     = ["122.172.82.40"]
-  firewall_default_action = "Deny"
-  public_network_access_enabled = false
-}
-```
 
 **Key Points:**
 - **Non-HNS Storage:** Uses flat blob structure, optimized for AI model storage

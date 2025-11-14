@@ -20,7 +20,6 @@ resource "azurerm_resource_group" "rsg" {
 # Storage Settings (Main Data Lake)
 # --------------------------------------------------------------------
 
-
 resource "azurerm_storage_account" "storage_hns" {
   count = var.storage_hns_settings.enable_storage_account ? 1 : 0
 
@@ -33,21 +32,34 @@ resource "azurerm_storage_account" "storage_hns" {
   account_replication_type = var.storage_hns_settings.account_replication_type
   access_tier              = var.storage_hns_settings.access_tier
   is_hns_enabled           = var.storage_hns_settings.is_hns_enabled
-  public_network_access_enabled = var.storage_hns_settings.public_network_access_enabled
+  public_network_access_enabled = true   # ← MUST be true for creation
 
-  network_rules {
-    default_action             = var.storage_hns_settings.firewall_default_action
-    bypass                     = var.storage_hns_settings.firewall_rules_bypass
-    ip_rules                   = var.storage_hns_settings.firewall_ip_rules
-    virtual_network_subnet_ids = []
+  timeouts {
+    create = "60m"
   }
 
-    tags = {
+  tags = {
     environment = var.environment
     app_ref     = var.app_ref
     used_by     = "Data Platform"
   }
+}
 
+# Apply firewall rules after storage account is created so the deployment will be faster
+
+resource "azurerm_storage_account_network_rules" "storage_hns_rules" {
+  count = var.storage_hns_settings.enable_storage_account ? 1 : 0
+
+  storage_account_id = azurerm_storage_account.storage_hns[0].id
+
+  default_action             = var.storage_hns_settings.firewall_default_action
+  bypass                     = var.storage_hns_settings.firewall_rules_bypass
+  ip_rules                   = var.storage_hns_settings.firewall_ip_rules
+  virtual_network_subnet_ids = []
+
+  depends_on = [
+    azurerm_storage_account.storage_hns
+  ]
 }
 
 
@@ -69,14 +81,10 @@ resource "azurerm_storage_account" "storage_blob" {
   account_replication_type = var.storage_blob_settings.account_replication_type
   access_tier              = var.storage_blob_settings.access_tier
   is_hns_enabled           = var.storage_blob_settings.is_hns_enabled
-  public_network_access_enabled = var.storage_blob_settings.public_network_access_enabled
+  public_network_access_enabled = true   # ← MUST be true
 
-
-  network_rules {
-    default_action             = var.storage_blob_settings.firewall_default_action
-    bypass                     = var.storage_blob_settings.firewall_rules_bypass
-    ip_rules                   = var.storage_blob_settings.firewall_ip_rules
-    virtual_network_subnet_ids = []
+  timeouts {
+    create = "60m"
   }
 
 
@@ -86,6 +94,24 @@ resource "azurerm_storage_account" "storage_blob" {
     used_by     = "AI Foundry"
   }
 }
+
+# Apply firewall rules after storage account is created so the deployment will be faster
+
+resource "azurerm_storage_account_network_rules" "storage_blob_rules" {
+  count = var.storage_blob_settings.enable_storage_account ? 1 : 0
+
+  storage_account_id = azurerm_storage_account.storage_blob[0].id
+
+  default_action             = var.storage_blob_settings.firewall_default_action
+  bypass                     = var.storage_blob_settings.firewall_rules_bypass
+  ip_rules                   = var.storage_blob_settings.firewall_ip_rules
+  virtual_network_subnet_ids = []
+
+  depends_on = [
+    azurerm_storage_account.storage_blob
+  ]
+}
+
 
 # --------------------------------------------------------------------
 # Key Vault
