@@ -83,7 +83,7 @@ azure_infra_tf/
 ├── .terraform/             # Terraform working directory (auto-generated)
 .github/
 └── workflows/
-└── terraform-deploy.yml # GitHub Actions deployment workflow
+  └── terraform-deploy.yml # GitHub Actions deployment workflow
 
 ```
 
