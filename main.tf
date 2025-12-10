@@ -161,14 +161,6 @@ resource "azurerm_databricks_workspace" "dbw" {
 # --------------------------------------------------------------------
 
 
-  # ✅ Newer schema uses "analytical_storage" block (3.80+)
-  #dynamic "analytical_storage" {
-  #  for_each = var.cosmos_settings.enable_analytical_storage ? [1] : []
-  #  content {
-  #    schema_type = "WellDefined"
-  #  }
-  #}
-
 
 resource "azurerm_cosmosdb_account" "cosmos" {
   count               = var.cosmos_settings.enable_cosmos ? 1 : 0
@@ -215,7 +207,7 @@ resource "azurerm_search_service" "ai_search" {
 
 
 # --------------------------------------------------------------------
-# Azure AI Foundry (Cognitive Services)
+# Azure AI Foundry 
 # --------------------------------------------------------------------
 resource "azurerm_ai_foundry" "ai_foundry" {
   count               = var.ai_foundry_settings.enable_ai_foundry ? 1 : 0
@@ -223,7 +215,7 @@ resource "azurerm_ai_foundry" "ai_foundry" {
   resource_group_name = azurerm_resource_group.rsg.name
   location            = local.ai_foundry_region
   key_vault_id        = azurerm_key_vault.kv.id
-  storage_account_id  = azurerm_storage_account.storage_blob[0].id   # 👈 new link
+  storage_account_id  = azurerm_storage_account.storage_blob[0].id   
 
   identity {
     type = "SystemAssigned"
@@ -235,6 +227,12 @@ resource "azurerm_ai_foundry" "ai_foundry" {
   }
 }
 
-
-
+# --------------------------------------------------------------------
+# Azure AI Foundry Project
+# --------------------------------------------------------------------
+resource "azurerm_ai_foundry_project" "aif_workspace" {
+  name               = "aiftestproject-${var.environment}-${var.region_code}-${var.app_ref}"
+  location           = local.ai_foundry_region
+  ai_services_hub_id = azurerm_ai_foundry.ai_foundry.id
+}
 
