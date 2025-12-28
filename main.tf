@@ -227,12 +227,5 @@ resource "azurerm_ai_foundry" "ai_foundry" {
   }
 }
 
-# --------------------------------------------------------------------
-# Azure AI Foundry Project
-# --------------------------------------------------------------------
-resource "azurerm_ai_foundry_project" "aif_workspace" {
-  name               = "aiftestproject-${var.environment}-${var.region_code}-${var.app_ref}"
-  location           = local.ai_foundry_region
-  ai_services_hub_id = azurerm_ai_foundry.ai_foundry.id
-}
+
 
